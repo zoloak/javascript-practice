@@ -23,6 +23,18 @@ class Check {
         return this._check(checkable);
     }
 }
+Check.builder = function() {
+    class CheckBuilder {
+        #check = {};
+        name(name) {this.#check.name = name; return this;}
+        type(type) {this.#check.type = type; return this;}
+        check(check) {this.#check.check = check; return this;}
+        doCheckOn(doCheckOn) {this.#check.doCheckOn = doCheckOn; return this;}
+        isAsync() {this.#check.async = true; return this;}
+        build() {return new Check(this.#check);}
+    }
+    return new CheckBuilder();
+};
 
 class Checkable {
     rules = new Map();
@@ -76,11 +88,26 @@ class Checkable {
         } else if (!Array.isArray(status)) {
             status = [status];
         }
+
         let promises = [];
-        let checkedStatus = status.filter(s => this[s]);
-        for (const cs of checkedStatus) {
-            for (const check of this.rules.get(cs)) {
-                promises.push(check.check(this));
+        for (const s of status) {
+            let result = this[s];
+            if (typeof result == 'boolean' && result) {
+                let statusPromises = [];
+                for (const check of this.rules.get(s)) {
+                    statusPromises.push(check.check(this));
+                }
+                promises.push(Promise.all(statusPromises));
+            } else if (result instanceof Promise) {
+                promises.push(result.then(() => {
+                    let statusPromises = [];
+                    for (const check of this.rules.get(s)) {
+                        statusPromises.push(check.check(this));
+                    }
+                    return Promise.all(statusPromises)
+                }, () => {
+                    return Promise.resolve();
+                }));
             }
         }
         return Promise.all(promises);
@@ -89,13 +116,27 @@ class Checkable {
 
 // Here's a example:
 
-let someobject = new Checkable({sex: 1, age: 18, height: 160});
-someobject.addStatus( c => (c.data.sex == 1), 'isMale' );
-someobject.addStatus( c => (c.data.sex == 2), 'isFemale' );
+let someobject = new Checkable({sex: 1, age: 18, sexName: 'Male'});
 someobject.addChecks([
-    new Check( { check: c => (c.data.age >= 18), type: 'check', name: 'adult check 1', doCheckOn: ['isMale']} ),
-    new Check( { check: c => (c.data.age >= 18), type: 'check', name: 'adult check 2', doCheckOn: 'isMale'} ),
-    new Check( { check: c => new Promise((resolve, reject) => { setTimeout(()=>{if (c.data.height == 160) {resolve();} else {reject();}}, 2000) }), type: 'check', name: 'adult check 3', async: true} ),
+    Check.builder().name('isMale').type('status').check(c => (c.data.sex == 1)).build(),
+    Check.builder().name('isFemale').type('status').check(c => (c.data.sex == 2)).build(),
+    Check.builder().name('isMaleAsync').type('status').check(
+            c => new Promise((resolve, reject) => {
+                setTimeout(() => {if (c.data.sex == 1) {resolve();} else {reject();}}, 2000) 
+            })
+        ).isAsync().build(),
+    Check.builder().name('adult check 1').type('check').check(c => (c.data.age >= 18)).doCheckOn(['isMale']).build(),
+    Check.builder().name('adult check 2').type('check').check(c => (c.data.age >= 18)).doCheckOn('isMale').build(),
+    Check.builder().name('age check 1').type('check').check(
+            c => new Promise((resolve, reject) => {
+                setTimeout(()=>{if (c.data.age >= 0) {resolve();} else {reject();}}, 2000)
+            })
+        ).isAsync().build(),
+    Check.builder().name('male check 1 async').type('check').check(
+            c => new Promise((resolve, reject) => {
+                setTimeout(()=>{if (c.data.sexName == 'Male') {resolve();} else {reject();}}, 2000)
+            })
+        ).doCheckOn('isMaleAsync').isAsync().build(),
 ]);
 someobject.docheck()
 .then(() => {console.log('SUCCESS')})
