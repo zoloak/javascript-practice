@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>checker test</title>
+        <style>
+            * {
+                font-family: consolas, 'Courier New', Courier, monospace;
+            }
+            article {
+                display: grid;
+                grid-template-columns: 4fr 1fr;
+                grid-gap: 10px;
+            }
+            body > #checker-example {
+                display: grid;
+                grid-template-columns: 1fr 3fr 1fr;
+                grid-gap: 10px;
+            }
+            body > #checker-example > #check-header-container { /* "示例" */
+                grid-column: 1 / 4; grid-row: 1;
+            }
+            body > #checker-example > #check-object-container { /* check-object-container */
+                grid-column: 1; grid-row: 3;
+            }
+            body > #checker-example > #checks-container { /* checks textarea */
+                grid-column: 2; grid-row: 3;
+            }
+            body > #checker-example > #check-object-btn-container { /* remove / add button */
+                grid-column: 1; grid-row: 4;
+            }
+            body > #checker-example > #check-footer-container { /* docheck button */
+                grid-column: 2 / 4; grid-row: 4;
+            }
+            body > #checker-example > #log { /* log */
+                grid-column: 3; grid-row: 3;
+            }
+            #check-object-container > div {
+                padding: 0;
+                margin: 5px;
+                display: grid;
+                grid-template-columns: 1fr auto 1fr;
+                grid-auto-rows: 1.7em;
+                grid-gap: 5px;
+            }
+            body > #checker-example > #check-object-btn-container { /* remove / add button */
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                grid-gap: 10px;
+            }
+            textarea {
+                padding: 8px;
+                width: calc(100% - 16px);
+                height: 16em;
+                font-size: 14px;
+            }
+            input {
+                padding: 4px;
+                height: 1em;
+            }
+            #docheck, #add, #remove {
+                margin: 0;
+                padding: 8px;
+                width: 100%;
+            }
+            #log > p {
+                margin: 0;
+            }
+            #log > p:nth-of-type(2n) {
+                background-color: ghostwhite;
+            }
+        </style>
+    </head>
+    <body onload="init()">
+        <article>
+            <aside>
+                <h2> Checker（暂定）v1.0 </h2>
+                <p>目标是所有的验证都用只需要定义，执行验证时自动根据数据不同情况（状态）验证不同的条目。</p>
+                <p>实现上，新建了两个“类”（虽然 JavaScript 不存在真正意义上的类）：
+                    <ul>
+                        <li><code>Check</code>：验证一个条目的过程，以及一些其他的信息。</li>
+                        <li><code>Checkable</code>：可以在不同的状态运行不同验证的对象。</li>
+                    </ul>
+                    具体请参照 <code>checker.js</code>
+                </p>
+            </aside>
+            <aside id="todo">
+                <p>TODO:
+                    <ul>
+                        <li>支持异步</li>
+                        <li>支持验证指定状态</li>
+                        <li>移除状态命名的限制</li>
+                        <li>支持传递错误信息</li>
+                    </ul>
+                </p>
+            </aside>
+        </article>
+        <div id="checker-example">
+            <h3 id="check-header-container"> 示例 </h3>
+            <div>需要验证的对象，本示例中只支持<br/><code>{"name": "value"}</code><br/>形式的简单 JavaScript 对象</div>
+            <div>
+                默认的状态被命名成 'inAllCondition'，不要使用这个作为状态名。<br/>
+                状态名和 <code>Checkable</code> 共享命名空间，不要使用以 'add','do','remove' 为开头的状态名。<br/>
+                状态名限制的移除已经加入到 TODO。
+            </div>
+            <div>log</div>
+            <div id="check-object-container"></div>
+            <div id="checks-container">
+<textarea id="checks">
+Check.builder().type('status').name('isMale').check(c =&gt; c.data.sex == '1').build(),
+Check.builder().type('check').name('teenager check').check(c =&gt; {return Number(c.data.age) &lt; 12}).build(),
+</textarea>
+            </div>
+            <div id="check-object-btn-container">
+                <button id="remove"> remove </button>
+                <button id="add"> add </button>
+            </div>
+            <div id="check-footer-container">
+                <button id="docheck"> docheck </button>
+            </div>
+            <div id="log"></div>
+        </div>
+    </body>
+    <script>
+        function init() {
+            createCheckObject("sex", "1");
+            createCheckObject("age", "10");
+            createCheckObject();
+            createCheckObject();
+            document.getElementById('docheck').addEventListener('click', () => { showlog('docheck starts...', 'clear'); });
+            document.getElementById('docheck').addEventListener('click', docheck);
+            document.getElementById('add').addEventListener('click', () => {createCheckObject();}); // so it will not pass a event object.
+            document.getElementById('remove').addEventListener('click', removeCheckObject);
+            showlog('init finished', 'clear');
+        }
+        function showlog(str, mode) {
+            str = str || 'init show log';
+            if (mode == 'clear') {
+                document.getElementById('log').innerHTML = '<p>' + str + '</p>';
+            } else {
+                document.getElementById('log').innerHTML += '<p>' + str + '</p>';
+            }
+        }
+        function makeRangeIterator() {
+            let iterationCount = 0;
+            const rangeIterator = {
+                next: function() {
+                    return iterationCount++;
+                },
+                pop: function() {
+                    return iterationCount == 0 ? false : --iterationCount;
+                }
+            };
+            return rangeIterator;
+        }
+        /* 调用一次 makeRangeIterator 的返回值里包括函数，next() 和 pop() 可以访问这一次 makeRangeIterator() 调用的作用域 */
+        /* 即是说，两次调用 getCount() 可以访问同一个 iterationCount，本质是闭包 */
+        /* 这里的使用会用它来生成唯一 id */
+        let getCount = makeRangeIterator();
+        function createCheckObject(name, value) {
+            name = name || '';
+            value = value || '';
+            let inputName = 'check-object-' + getCount.next();
+            document.getElementById('check-object-container').innerHTML += 
+            `<div id="${inputName}"><input name="${inputName}" class="check-object" data-type="name" value="${name}"><span>:</span><input name="${inputName}" class="check-object" data-type="value" value="${value}"></div>`;
+        }
+        function removeCheckObject() {
+            let inputName = 'check-object-' + getCount.pop();
+            document.getElementById('check-object-container').removeChild(document.getElementById(inputName));
+        }
+
+        function docheck() {
+            let checkable = new Checkable(getCheckable());
+            console.log(checkable);
+            checkable.addRules(eval('[' + document.querySelector('#checks').value + ']'));
+            checkable.docheck().then(()=>{showlog('there is no error')}).catch(()=>{showlog('//ERROR///ERROR//')});
+        }
+        function getCheckable() {
+            let checkable = {};
+            let map = new Map();
+            for (let prop of document.getElementsByClassName('check-object')) {
+                if (map.has(prop.name)) {
+                    map.get(prop.name)[prop.dataset.type] = prop.value;
+                } else {
+                    map.set(prop.name, {name: prop.value});
+                }
+            }
+            console.log(map)
+            for (let a of map) {
+                checkable[a[1].name] = a[1].value;
+            }
+            return checkable;
+        }
+
+        /**
+         * 每个 Check 实例是一个验证的过程，包含有两个成员：
+         * 
+         * Check 实例并不持有验证对象，建议在调用 check 方法的时候作为参数传入。
+         */
+        class Check {
+            constructor(check) {
+                /** 原始传入参数 */
+                this.info = check;
+                this.name = check.name;
+                this.type = check.type;
+                /** 验证的方法，它应该返回 true/false，并接受一个参数。这个参数应当包含有全部需要的信息 */
+                /** 如果要添加异步支持，这个方法返回值应该是个 Promise */
+                this.check = check.check;
+            }
+        }
+        Check.builder = function() { /* 写这个生成器只是好玩 */
+            class CheckBuilder {
+                #check = {};
+                name(name)           {this.#check.name      = name;      return this;}
+                type(type)           {this.#check.type      = type;      return this;}
+                check(check)         {this.#check.check     = check;     return this;}
+                doCheckOn(doCheckOn) {this.#check.doCheckOn = doCheckOn; return this;}
+                build() {return new Check(this.#check);}
+            }
+            return new CheckBuilder();
+        };
+
+        /**
+         * 可以验证的对象
+         * 
+         * Checkable 实例持有所有需要的信息 data，它拥有可自定义的状态，并在不同的状态进行不同的验证。
+         * 
+         * 不关心验证的过程，这会交给 Check 实例完成。
+         */
+        class Checkable {
+            #rules = new Map();
+            constructor(data) {
+                this.data = data;
+                this.addStatus(true, 'inAllCondition');
+            }
+            addStatus(check, name) {
+                this.#rules.set(name, []);
+                if (check instanceof Check) {
+                    Object.defineProperty( this, name, { get : function() {return check.check(this);} } );
+                } else if (typeof check == 'function') {
+                    Object.defineProperty( this, name, { get : function() {return check(this);} } );
+                } else if (typeof check == 'boolean') {
+                    Object.defineProperty( this, name, { get : function() {return check;} } );
+                }
+            }
+            #addCheck(check, name) {
+                this.#rules.get(name).push(check);
+            }
+            addCheck(check) {
+                this.#addCheck(check, check.name);
+            }
+            addRules(checks) {
+                for (const check of checks) {
+                    if (check.info.type == 'status') {
+                        this.addStatus(check, check.info.name);
+                    }
+                }
+                for (const check of checks) {
+                    if (check.info.type == 'check') {
+                        if (Array.isArray(check.info.doCheckOn)) {
+                            for (const condition of check.info.doCheckOn) {
+                                this.#addCheck(check, condition);
+                            }
+                        } else if (typeof check.info.doCheckOn == 'string') {
+                            this.#addCheck(check, check.info.doCheckOn);
+                        } else {
+                            this.#addCheck(check, 'inAllCondition');
+                        }
+                    }
+                }
+            }
+            docheck(status) {
+                if (!status) {
+                    status = [];
+                    this.#rules.forEach((_v, k) => status.push(k));
+                } else if (!Array.isArray(status)) {
+                    status = [status];
+                }
+                let promises = [];
+                let checkedStatus = status.filter(s => this[s]);
+                for (const cs of checkedStatus) {
+                    for (const check of this.#rules.get(cs)) {
+                        promises.push(new Promise((resolve, reject) => {
+                            showlog(`checking ${check.info.name}...`);
+                            if (check.check(this)) {
+                                showlog(`${check.info.name} succeed`);
+                                resolve();
+                            } else {
+                                showlog(`${check.info.name} failed`);
+                                reject();
+                            }
+                        }));
+                    }
+                }
+                return Promise.all(promises);
+            }
+        }
+    </script>
+</html>
